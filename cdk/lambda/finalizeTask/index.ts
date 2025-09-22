@@ -14,22 +14,25 @@ const apigw = new ApiGatewayManagementApiClient({ endpoint: apiGwEndpoint });
 export const handler = async (event: any) => {
   // Scheduler passes payload as body with taskId
   const body = typeof event === 'string' ? JSON.parse(event) : (event as any).detail || event;
-  const taskId = body.taskId || (body?.payload && JSON.parse(body.payload).taskId);
+  const taskId = body.taskId;
+  const endsAt = body.endsAt;
 
   if (!taskId) {
     console.log('No taskId in event', event);
     return;
+  } else {
+    console.log('Finalizing task', taskId);
   }
 
   // Fetch task
   const resp = await ddb.send(new GetCommand({
     TableName: TASKS_TABLE,
-    Key: { taskId } 
+    Key: { taskId, endsAt }
   }));
 
   const task = resp.Item;
   if (!task) {
-    console.log('Task not found', taskId);
+    console.log('Task not found', { taskId, endsAt });
     return;
   }
 
@@ -41,11 +44,13 @@ export const handler = async (event: any) => {
   // TODO: apply game logic: give resources, move unit, etc. For MVP we'll mark COMPLETE.
   await ddb.send(new UpdateCommand({
     TableName: TASKS_TABLE,
-    Key: { taskId },
+    Key: { taskId, endsAt },
     UpdateExpression: 'SET #s = :s, completedAt = :t',
     ExpressionAttributeNames: { '#s': 'status' },
     ExpressionAttributeValues: { ':s': 'COMPLETE', ':t': Math.floor(Date.now() / 1000) }
   }));
+
+  console.log('Task marked COMPLETE', taskId);
 
   // Broadcast to all connections (naive: scan table)
   // In production use a GSI to query by nation and lookup only relevant connections.

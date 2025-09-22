@@ -4,16 +4,12 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
-import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { aws_lambda_nodejs } from 'aws-cdk-lib';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
-import * as scheduler from 'aws-cdk-lib/aws-scheduler';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as cr from 'aws-cdk-lib/custom-resources';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class KotorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -190,21 +186,32 @@ export class KotorStack extends cdk.Stack {
     });
 
     // ---------- REST HTTP API for task creation ----------
-    const httpApi = new apigwv2.HttpApi(this, 'HttpApi');
+    const httpApi = new apigwv2.HttpApi(this, 'NationsHttpApi', {
+      apiName: 'NationsOfKotorAPI',
+      corsPreflight: {
+        allowOrigins: ['*'], // In production, restrict this to your domain
+        allowMethods: [
+          apigwv2.CorsHttpMethod.GET,
+          apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.OPTIONS,
+        ],
+        allowHeaders: ['Content-Type'],
+      },
+    });
 
-    const createTaskFn = mkLambda('CreateTaskFn', 'createTask', { SCHEDULER_ROLE_ARN: '' });
-    tasksTable.grantReadWriteData(createTaskFn);
-    // createTask needs Scheduler:createSchedule and scheduler:TagResource*, and DynamoDB write permissions
-    createTaskFn.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule', 'iam:PassRole'],
-      resources: ['*'] // narrower by building ARNs in prod
-    }));
+    // Role for EventBridge to use
+    const schedulerRole = new iam.Role(this, 'EventBridgeSchedulerRole', {
+      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+    });
 
     // For the finalize task Lambda, create it first and then create an EventBridge Scheduler target that invokes it
     const finalizeTaskFn = mkLambda('FinalizeTaskFn', 'finalizeTask');
     tasksTable.grantReadWriteData(finalizeTaskFn);
     // Finalizer needs to post to websocket connections -> grant ManageConnections
     finalizeTaskFn.addToRolePolicy(manageConnectionsPolicy);
+
+    connectionsTable.grantReadData(finalizeTaskFn);
+
 
     // Grant API Gateway permission to invoke finalizer if Scheduler uses API destination / direct invoke via ARN target
     new lambda.CfnPermission(this, 'FinalizeInvokPerm', {
@@ -213,11 +220,45 @@ export class KotorStack extends cdk.Stack {
       principal: 'scheduler.amazonaws.com'
     });
 
+
+    const schedulerDlq = new sqs.Queue(this, 'SchedulerDLQ', {
+      queueName: 'NationsOfKotor-Scheduler-DLQ',
+      retentionPeriod: cdk.Duration.days(14),
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Allow the EventBridge Scheduler service to send messages to the DLQ
+    schedulerDlq.addToResourcePolicy(new iam.PolicyStatement({
+      sid: 'AllowSchedulerSendMessage',
+      principals: [new iam.ServicePrincipal('scheduler.amazonaws.com')],
+      actions: ['sqs:SendMessage', 'sqs:SendMessageBatch'],
+      resources: [schedulerDlq.queueArn],
+    }));
+
+    const createTaskFn = mkLambda('CreateTaskFn', 'createTask', { SCHEDULER_ROLE_ARN: schedulerRole.roleArn, FINALIZER_ARN: finalizeTaskFn.functionArn, SCHEDULER_DLQ_ARN: schedulerDlq.queueArn });
+    tasksTable.grantReadWriteData(createTaskFn);
+    // createTask needs Scheduler:createSchedule and scheduler:TagResource*, and DynamoDB write permissions
+    createTaskFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule', 'iam:PassRole'],
+      resources: ['*'] // narrower by building ARNs in prod
+    }));
+
+    // Grant permission to invoke the Lambda
+    schedulerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [finalizeTaskFn.functionArn],
+    }));
+
+    new cdk.CfnOutput(this, 'EventBridgeSchedulerRoleArn', {
+      value: schedulerRole.roleArn,
+    });
+
     // Hook CreateTask Lambda to the HTTP API
     const createIntegration = new HttpLambdaIntegration('MyIntegration', createTaskFn, {
       payloadFormatVersion: apigwv2.PayloadFormatVersion.VERSION_1_0 // 👈 Force version 1.0
     });
-    
+
     httpApi.addRoutes({
       path: '/create-task',
       methods: [apigwv2.HttpMethod.POST],
@@ -239,6 +280,16 @@ export class KotorStack extends cdk.Stack {
         })
       }
     });
+
+    schedulerInvokeRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [finalizeTaskFn.functionArn],
+    }));
+    
+    schedulerInvokeRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['sqs:SendMessage', 'sqs:SendMessageBatch'],
+      resources: [schedulerDlq.queueArn],
+    }));
 
     // Allow CreateTask Lambda to create schedules that use the schedulerInvokeRole
     createTaskFn.addToRolePolicy(new iam.PolicyStatement({
