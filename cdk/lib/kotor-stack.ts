@@ -28,7 +28,8 @@ export class KotorStack extends cdk.Stack {
     });
 
     const tilesTable = new dynamodb.Table(this, 'TilesTable', {
-      partitionKey: { name: 'tileId', type: dynamodb.AttributeType.STRING },
+      partitionKey: { name: 'regionId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'entityKey', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY
     });
@@ -265,6 +266,30 @@ export class KotorStack extends cdk.Stack {
       integration: createIntegration
     });
 
+    const mapFn = mkLambda('MapFn', 'map', {
+      GAME_STATE_TABLE: tilesTable.tableName,
+    });
+
+    tilesTable.grantReadWriteData(mapFn);
+
+    // Create integration
+    const mapIntegration = new HttpLambdaIntegration('MapIntegration', mapFn, {
+      payloadFormatVersion: apigwv2.PayloadFormatVersion.VERSION_1_0
+    });
+
+    // Add routes
+    httpApi.addRoutes({
+      path: '/map',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: mapIntegration
+    });
+
+    httpApi.addRoutes({
+      path: '/map/entity',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: mapIntegration
+    });
+
     // Grant CreateTask Lambda permission to pass the role to scheduler when creating schedules (we will create an IAM role below)
     // Create an IAM role which Scheduler will assume to invoke the Lambda finalizer
     const schedulerInvokeRole = new iam.Role(this, 'SchedulerInvokeRole', {
@@ -285,7 +310,7 @@ export class KotorStack extends cdk.Stack {
       actions: ['lambda:InvokeFunction'],
       resources: [finalizeTaskFn.functionArn],
     }));
-    
+
     schedulerInvokeRole.addToPolicy(new iam.PolicyStatement({
       actions: ['sqs:SendMessage', 'sqs:SendMessageBatch'],
       resources: [schedulerDlq.queueArn],
