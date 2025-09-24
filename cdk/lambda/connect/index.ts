@@ -8,6 +8,7 @@ const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || 'ConnectionsTable';
 export const handler = async (event: any) => {
   // event.requestContext.connectionId is the WebSocket connection id
   const connectionId = event.requestContext?.connectionId;
+  const regionId = event.queryStringParameters?.regionId || "world";
   // We could validate a JWT from queryStringParameters.Authorization or subprotocol, but keeping simple
   const userId = event.queryStringParameters?.userId || 'anonymous';
 
@@ -21,6 +22,7 @@ export const handler = async (event: any) => {
     Item: {
       connectionId,
       userId,
+      regionId,
       connectedAt: Date.now()
     }
   }));

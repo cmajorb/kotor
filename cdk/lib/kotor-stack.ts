@@ -48,6 +48,12 @@ export class KotorStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY
     });
 
+    // GSI for region lookups
+    connectionsTable.addGlobalSecondaryIndex({
+      indexName: 'RegionIndex',
+      partitionKey: { name: 'regionId', type: dynamodb.AttributeType.STRING }
+    });
+
     // ---------- Cognito ----------
     const userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: true,
@@ -106,6 +112,9 @@ export class KotorStack extends cdk.Stack {
     // default (messages)
     const defaultWsFn = mkLambda('DefaultWsFn', 'defaultWs');
 
+    const mapFn = mkLambda('MapFn', 'map');
+
+
     // Grant connect/disconnect/default Lambdas rights to write connection records
     connectionsTable.grantWriteData(connectFn);
     connectionsTable.grantWriteData(disconnectFn);
@@ -116,13 +125,14 @@ export class KotorStack extends cdk.Stack {
       actions: ['execute-api:ManageConnections'],
       resources: [
         // Use wildcard for connections management resource
-        `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/${wsStage.stageName}/*`
+        `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/*`
       ]
     });
 
     connectFn.addToRolePolicy(manageConnectionsPolicy);
     disconnectFn.addToRolePolicy(manageConnectionsPolicy);
     defaultWsFn.addToRolePolicy(manageConnectionsPolicy);
+    mapFn.addToRolePolicy(manageConnectionsPolicy);
 
     // Wire up routes using low-level constructs with Lambda integrations
     const integrationConnect = new apigwv2.CfnIntegration(this, 'ConnectIntegration', {
@@ -171,19 +181,19 @@ export class KotorStack extends cdk.Stack {
       action: 'lambda:InvokeFunction',
       functionName: connectFn.functionArn,
       principal: 'apigateway.amazonaws.com',
-      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/${wsStage.stageName}/$connect`
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/$connect`
     });
     new lambda.CfnPermission(this, 'DisconnectPermission', {
       action: 'lambda:InvokeFunction',
       functionName: disconnectFn.functionArn,
       principal: 'apigateway.amazonaws.com',
-      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/${wsStage.stageName}/$disconnect`
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/$disconnect`
     });
     new lambda.CfnPermission(this, 'DefaultPermission', {
       action: 'lambda:InvokeFunction',
       functionName: defaultWsFn.functionArn,
       principal: 'apigateway.amazonaws.com',
-      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/${wsStage.stageName}/$default`
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.ref}/*/$default`
     });
 
     // ---------- REST HTTP API for task creation ----------
@@ -266,11 +276,12 @@ export class KotorStack extends cdk.Stack {
       integration: createIntegration
     });
 
-    const mapFn = mkLambda('MapFn', 'map', {
-      GAME_STATE_TABLE: tilesTable.tableName,
-    });
+
+
 
     tilesTable.grantReadWriteData(mapFn);
+    connectionsTable.grantReadData(mapFn);
+
 
     // Create integration
     const mapIntegration = new HttpLambdaIntegration('MapIntegration', mapFn, {

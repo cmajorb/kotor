@@ -1,5 +1,7 @@
 // src/components/RegionMap.tsx
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
+import { GameWebSocket } from "../api/websocket";
+
 import { getRegion } from "../api/mapApi";
 
 interface Entity {
@@ -15,8 +17,70 @@ interface Entity {
 
 export default function RegionMap({ regionId }: { regionId: string }) {
     const [entities, setEntities] = useState<Entity[]>([]);
+    const [socket, setSocket] = useState<GameWebSocket | null>(null);
+
     const gridSize = 30; // 30x30
     const tileSize = 28; // px per tile (adjust if you want bigger/smaller)
+
+    // Initial fetch
+    useEffect(() => {
+        getRegion(regionId).then(setEntities).catch(console.error);
+    }, [regionId]);
+
+    
+  // Handle incoming WebSocket messages
+  const handleSocketMessage = (message: any) => {
+    const { action, entity, changeType } = message;
+
+    if (action === "ENTITY_UPDATED") {
+        console.log("Entity update received:", message);
+      setEntities((prev) => {
+        if (changeType === "INSERT") {
+          return [...prev, entity];
+        } else if (changeType === "MODIFY") {
+          return prev.map((e) =>
+            e.entityKey === entity.entityKey ? entity : e
+          );
+        } else if (changeType === "REMOVE") {
+          return prev.filter((e) => e.entityKey !== entity.entityKey);
+        }
+        return prev;
+      });
+    }
+  };
+
+     // Open WebSocket connection when region changes
+  useEffect(() => {
+    // Clean up old socket if it exists
+    if (socket) {
+      socket.close();
+    }
+
+    const ws = new GameWebSocket(handleSocketMessage);
+    setSocket(ws);
+
+    ws.socket.onopen = () => {
+      console.log("WebSocket connected, subscribing to region:", regionId);
+      ws.send("SUBSCRIBE_REGION", { regionId });
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [regionId]);
+
+//   useEffect(() => {
+//   const ws = new GameWebSocket((msg) => {
+//     if (msg.type === "REGION_UPDATE") {
+//       setEntities(prev => {
+//         // Merge or replace entity
+//         return [...prev.filter(e => e.entityKey !== msg.entity.entityKey), msg.entity];
+//       });
+//     }
+//   });
+
+//   return () => ws.close();
+// }, [regionId]);
 
     useEffect(() => {
         getRegion(regionId)
