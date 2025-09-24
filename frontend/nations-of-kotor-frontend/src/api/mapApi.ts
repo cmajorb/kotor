@@ -16,3 +16,13 @@ export async function getRegion(regionId: string) {
   if (!res.ok) throw new Error(`Failed to fetch region: ${res.status}`);
   return res.json();
 }
+
+export async function createEntity(payload: any) {
+  const res = await fetch(`${API_BASE}/map/entity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
