@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import type { EntityOption } from '../types';
+import type { EntityDefinition } from '../types';
 
 interface BuildMenuProps {
-  buildings: EntityOption[];
-  units: EntityOption[];
-  selectedEntity: EntityOption | null;
-  onSelect: (option: EntityOption) => void;
+  buildings: EntityDefinition[];
+  units: EntityDefinition[];
+  selectedEntity: EntityDefinition | null;
+  onSelect: (option: EntityDefinition) => void;
   onCancel: () => void;
 }
 

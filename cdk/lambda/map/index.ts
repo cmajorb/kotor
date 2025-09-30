@@ -2,14 +2,26 @@ import { DeleteItemCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 import { v4 as uuidv4 } from "uuid";
+import type { EntityRequest, EntityDefinition } from "../entities/types";
+import { EntityService } from "../entities/EntityService";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const { TILES_TABLE, CONNECTIONS_TABLE, WS_API_ID, WS_STAGE, AWS_REGION } = process.env;
+let cachedDefinitionMap: Map<string, EntityDefinition> | null = null;
 
 
 const wsClient = new ApiGatewayManagementApiClient({
     endpoint: `https://${WS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${WS_STAGE}`
 });
+
+async function getDefinitionMap(): Promise<Map<string, EntityDefinition>> {
+    // Cache across Lambda invocations to avoid repeated fetching
+    if (!cachedDefinitionMap) {
+        const allDefinitions = await EntityService.getAllEntities();
+        cachedDefinitionMap = new Map(allDefinitions.map(def => [def.id, def]));
+    }
+    return cachedDefinitionMap;
+}
 
 export const handler = async (event: any) => {
     const method = event.httpMethod;
@@ -55,63 +67,48 @@ async function handleGetMap(event: any) {
         }
     }));
 
+    const entityRequests = resp.Items as EntityRequest[] || [];
+    const definitionMap = await getDefinitionMap();
+    const entities = entityRequests.map(req => EntityService.mapEntityRequestToEntity(req, definitionMap));
+
     return {
         statusCode: 200,
-        body: JSON.stringify(resp.Items || []),
+        body: JSON.stringify(entities || []),
     };
 }
 
 async function handleCreateEntity(event: any) {
-    const body = JSON.parse(event.body || "{}");
-    const { regionId, entityType, x, y, width, height, ownerId, data } = body;
+    const entity = JSON.parse(event.body || "{}") as EntityRequest;
 
-    if (!regionId || !entityType || x === undefined || y === undefined) {
+    if (!entity.regionId || !entity.entityDefinitionId || entity.x === undefined || entity.y === undefined) {
         return {
             statusCode: 400,
-            body: JSON.stringify({ message: "regionId, entityType, x, and y are required" })
+            body: JSON.stringify({ message: "regionId, entityDefinitionId, x, and y are required" })
         };
     }
 
     const entityId = uuidv4();
-    const entityKey = `${entityType}#${x}_${y}#${entityId}`;
+    entity.entityKey = `${entity.entityDefinitionId}#${entity.x}_${entity.y}#${entityId}`;
 
-    const item = {
-        regionId,
-        entityKey,
-        entityType,
-        x,
-        y,
-        width,
-        height,
-        ownerId,
-        data
-    };
+
 
     await ddb.send(new PutCommand({
         TableName: TILES_TABLE,
-        Item: item
+        Item: entity
     }));
 
+    const definitionMap = await getDefinitionMap();
+
     // 2. Broadcast to all connections watching this region
-    await broadcastRegionUpdate(regionId, {
+    await broadcastRegionUpdate(entity.regionId, {
         action: "ENTITY_UPDATED",
         changeType: "INSERT",
-        entity: {
-            regionId,
-            entityKey,
-            entityType,
-            x,
-            y,
-            width,
-            height,
-            ownerId,
-            data
-        }
+        entity: EntityService.mapEntityRequestToEntity(entity, definitionMap)
     });
 
     return {
         statusCode: 201,
-        body: JSON.stringify({ entityKey, regionId })
+        body: JSON.stringify(entity)
     };
 }
 

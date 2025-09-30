@@ -1,52 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import BuildMenu from "../components/BuildMenu";
 import RegionMap from "../components/RegionMap";
-import type { EntityOption } from "../types";
+import type { EntityDefinition } from "../types";
+import { fetchEntities } from "../api/mapApi";
 
-const ENTITY_OPTIONS: EntityOption[] = [
-    {
-        id: "house",
-        name: "House",
-        width: 2,
-        height: 2,
-        price: 100,
-        type: "BUILDING",
-        image: "https://placehold.co/100x100/A0A0A0/ffffff?text=House",
-    },
-    {
-        id: "barracks",
-        name: "Barracks",
-        width: 3,
-        height: 3,
-        price: 250,
-        type: "BUILDING",
-        image: "https://placehold.co/100x100/A0A0A0/ffffff?text=Barracks",
-    },
-    {
-        id: "castle",
-        name: "Castle",
-        width: 4,
-        height: 5,
-        price: 2500,
-        type: "BUILDING",
-        image: "https://placehold.co/100x100/A0A0A0/ffffff?text=Castle",
-    },
-    {
-        id: "soldier",
-        name: "Soldier",
-        width: 1,
-        height: 1,
-        price: 50,
-        type: "UNIT",
-        image: "https://placehold.co/100x100/A0A0A0/ffffff?text=Soldier",
-    },
-];
+
 
 export default function RegionPage({ regionId }: { regionId: string }) {
-    const [selectedEntity, setSelectedEntity] = useState<EntityOption | null>(null);
+    const [selectedEntity, setSelectedEntity] = useState<EntityDefinition | null>(null);
+    const [entities, setEntities] = useState<EntityDefinition[]>([]);
 
-    const buildings = ENTITY_OPTIONS.filter((e) => e.type === "BUILDING");
-    const units = ENTITY_OPTIONS.filter((e) => e.type === "UNIT");
+    useEffect(() => {
+        fetchEntities().then(setEntities).catch(console.error);
+    }, []);
+    const buildings = entities.filter((e) => e.type === "BUILDING");
+    const units = entities.filter((e) => e.type === "UNIT");
 
     return (
         <div className="flex w-full h-screen p-4 gap-4 bg-gray-900 text-white">

@@ -113,6 +113,7 @@ export class KotorStack extends cdk.Stack {
     const defaultWsFn = mkLambda('DefaultWsFn', 'defaultWs');
 
     const mapFn = mkLambda('MapFn', 'map');
+    const entitiesFn = mkLambda('EntitiesFn', 'entities');
 
 
     // Grant connect/disconnect/default Lambdas rights to write connection records
@@ -133,6 +134,7 @@ export class KotorStack extends cdk.Stack {
     disconnectFn.addToRolePolicy(manageConnectionsPolicy);
     defaultWsFn.addToRolePolicy(manageConnectionsPolicy);
     mapFn.addToRolePolicy(manageConnectionsPolicy);
+    entitiesFn.addToRolePolicy(manageConnectionsPolicy);
 
     // Wire up routes using low-level constructs with Lambda integrations
     const integrationConnect = new apigwv2.CfnIntegration(this, 'ConnectIntegration', {
@@ -218,6 +220,7 @@ export class KotorStack extends cdk.Stack {
     // For the finalize task Lambda, create it first and then create an EventBridge Scheduler target that invokes it
     const finalizeTaskFn = mkLambda('FinalizeTaskFn', 'finalizeTask');
     tasksTable.grantReadWriteData(finalizeTaskFn);
+    tilesTable.grantReadWriteData(finalizeTaskFn);
     // Finalizer needs to post to websocket connections -> grant ManageConnections
     finalizeTaskFn.addToRolePolicy(manageConnectionsPolicy);
 
@@ -288,6 +291,10 @@ export class KotorStack extends cdk.Stack {
       payloadFormatVersion: apigwv2.PayloadFormatVersion.VERSION_1_0
     });
 
+    const entityIntegration = new HttpLambdaIntegration('EntityIntegration', entitiesFn, {
+      payloadFormatVersion: apigwv2.PayloadFormatVersion.VERSION_1_0
+    });
+
     // Add routes
     httpApi.addRoutes({
       path: '/map',
@@ -299,6 +306,12 @@ export class KotorStack extends cdk.Stack {
       path: '/map/entity',
       methods: [apigwv2.HttpMethod.POST],
       integration: mapIntegration
+    });
+
+    httpApi.addRoutes({
+      path: '/entities',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: entityIntegration
     });
 
     // Grant CreateTask Lambda permission to pass the role to scheduler when creating schedules (we will create an IAM role below)

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { getRegion, createEntity } from "../api/mapApi";
 import { GameWebSocket } from "../api/websocket";
-import type { Entity, EntityOption } from "../types";
+import type { Entity, EntityDefinition, EntityRequest } from "../types";
+
+const API_BASE = import.meta.env.VITE_HTTP_API_URL;
 
 interface RegionMapProps {
     regionId: string;
-    selectedEntity: EntityOption | null;
+    selectedEntity: EntityDefinition | null;
 }
+
 
 export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) {
     const [entities, setEntities] = useState<Entity[]>([]);
@@ -21,14 +24,13 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
         getRegion(regionId)
             .then((items: any[]) => {
                 const normalized: Entity[] = (items || []).map((it) => ({
-                    entityKey: it.entityKey ?? it.SK ?? `${it.entityType}#${it.x}_${it.y}`,
-                    entityType: it.entityType ?? it.type,
+                    regionId: it.entityKey,
+                    entityKey: it.entityKey,
+                    entityDefinition: it.entityDefinition,
                     x: Number(it.x),
                     y: Number(it.y),
-                    width: Number(it.width ?? 1),
-                    height: Number(it.height ?? 1),
-                    ownerId: it.ownerId ?? it.owner,
-                    data: it.data ?? it,
+                    ownerId: it.ownerId,
+                    params: it.params,
                 }));
                 setEntities(normalized);
             })
@@ -70,19 +72,18 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
     /** Helpers */
     const getEntitiesAt = (x: number, y: number) =>
         entities.filter(
-            (e) => x >= e.x && x < e.x + e.width && y >= e.y && y < e.y + e.height
+            (e) => x >= e.x && x < e.x + e.entityDefinition.width && y >= e.y && y < e.y + e.entityDefinition.height
         );
 
-    const handleTileClick = (x: number, y: number) => {
+    const handleTileClick = async (x: number, y: number) => {
         if (!selectedEntity) return;
 
-        // Check for collision
         const isOccupied = entities.some(
             (e) =>
                 x + selectedEntity.width > e.x &&
-                x < e.x + e.width &&
+                x < e.x + e.entityDefinition.width &&
                 y + selectedEntity.height > e.y &&
-                y < e.y + e.height
+                y < e.y + e.entityDefinition.height
         );
 
         if (isOccupied) {
@@ -90,20 +91,43 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
             return;
         }
 
-        // Send to backend
-        createEntity({
-            regionId,
-            entityType: selectedEntity.type,
-            x,
-            y,
-            width: selectedEntity.width,
-            height: selectedEntity.height,
-            ownerId: "mock-user", // TODO: Replace later
-            data: { type: selectedEntity.name },
-        })
-            .then(() => console.log("Entity placed successfully"))
-            .catch((err) => console.error("Failed to place entity:", err));
+        try {
+
+
+            const now = Math.floor(Date.now() / 1000);
+            // TODO: Set params in backend
+            const entityRequest = {
+                regionId,
+                entityDefinitionId: selectedEntity.id,
+                x,
+                y,
+                ownerId: "mock-user",
+                params: {
+                    constructionStatus: "UNDER_CONSTRUCTION",
+                    startedAt: now
+                }
+            } as EntityRequest;
+
+            // 1. Create the entity in a "CONSTRUCTING" state
+            const { entityKey: newEntityKey, regionId: newRegionId } = await createEntity(entityRequest);
+            entityRequest.entityKey = newEntityKey;
+            entityRequest.regionId = newRegionId;
+
+            // 2. Start the construction task
+            const taskResponse = await fetch(`${API_BASE}/create-task`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(entityRequest)
+            });
+
+            const { taskId, endsAt } = await taskResponse.json();
+            console.log("Entity placed successfully with taskId", taskId, endsAt);
+
+        } catch (err) {
+            console.error("Failed to place entity:", err);
+        }
     };
+
 
     const gap = 2;
     const gridWidth = (gridSize * tileSize + (gridSize - 1) * gap);
@@ -129,7 +153,7 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
             >
                 {Array.from({ length: gridSize * gridSize }).map((_, index) => {
                     const x = index % gridSize;
-                    const y = Math.floor(index / gridSize);
+                    const y = Math.floor(index / gridSize)
                     const tileEntities = getEntitiesAt(x, y);
                     const hasEntities = tileEntities.length > 0;
 
@@ -154,37 +178,85 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
                                 backgroundColor: isHover
                                     ? "rgba(0, 0, 255, 0.3)"
                                     : hasEntities
-                                        ? "#ffe4b5"
+                                        ? ""
                                         : "#a8d5ba",
                                 border: "1px solid rgba(0,0,0,0.08)",
                                 boxSizing: "border-box",
-                                overflow: "hidden",
+                                // overflow: "hidden",
                                 cursor: selectedEntity ? "pointer" : "default",
                             }}
                         >
                             {tileEntities.map((e) => {
                                 const isTopLeft = e.x === x && e.y === y;
-                                return isTopLeft ? (
+                                if (!isTopLeft) return null;
+
+                                const isConstructing = e.params?.constructionStatus === "UNDER_CONSTRUCTION";
+                                const now = Math.floor(Date.now() / 1000);
+                                const progress = isConstructing && e.params.startedAt && e.params.endsAt
+                                    ? Math.min(1, (now - e.params.startedAt) / (e.params.endsAt - e.params.startedAt))
+                                    : 1;
+
+                                return (
                                     <div
                                         key={e.entityKey}
                                         style={{
                                             position: "absolute",
-                                            width: tileSize * e.width + (e.width - 1) * 2,
-                                            height: tileSize * e.height + (e.height - 1) * 2,
-                                            backgroundColor: "rgba(255, 200, 150, 0.85)",
+                                            width: tileSize * e.entityDefinition.width + (e.entityDefinition.width - 1) * 2,
+                                            height: tileSize * e.entityDefinition.height + (e.entityDefinition.height - 1) * 2,
+                                            backgroundColor: isConstructing
+                                                ? "rgba(218, 60, 2, 0.6)" // orange for under construction
+                                                : "rgba(255, 200, 150, 0.85)",
                                             border: "2px solid #cc8a00",
                                             borderRadius: 4,
                                             textAlign: "center",
                                             fontSize: 14,
                                             display: "flex",
+                                            flexDirection: "column",
                                             alignItems: "center",
                                             justifyContent: "center",
                                             pointerEvents: "none",
+                                            // overflow: "hidden",
                                         }}
                                     >
-                                        {e.entityType === "BUILDING" ? "🏰" : "⚔️"} {e.data?.type ?? ""}
+                                        <img
+                                            // src={tileEntities[0].params?.image}
+                                            // alt={tileEntities[0].params?.name}
+                                            src={"https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp"}
+                                            alt={"https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp"}
+                                            style={{
+                                                width: tileSize * tileEntities[0].entityDefinition.width + (tileEntities[0].entityDefinition.width - 1) * 2,
+                                                height: tileSize * tileEntities[0].entityDefinition.height + (tileEntities[0].entityDefinition.height - 1) * 2,
+                                                position: "absolute",
+                                                top: 0,
+                                                left: 0,
+                                                objectFit: "cover",
+                                            }}
+                                        />
+                                        {/* {e.params?.name}
+
+                                        {isConstructing && (
+                                            <div
+                                                style={{
+                                                    position: "absolute",
+                                                    bottom: 0,
+                                                    left: 0,
+                                                    width: "100%",
+                                                    height: "6px",
+                                                    backgroundColor: "#333",
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        width: `${progress * 100}%`,
+                                                        height: "100%",
+                                                        backgroundColor: "#4ade80", // green progress bar
+                                                        transition: "width 1s linear",
+                                                    }}
+                                                />
+                                            </div>
+                                        )} */}
                                     </div>
-                                ) : null;
+                                );
                             })}
                         </div>
                     );
