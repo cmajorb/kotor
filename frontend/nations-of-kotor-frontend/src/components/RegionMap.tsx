@@ -221,8 +221,7 @@ export default function RegionMap({ regionId, selectedEntity }: RegionMapProps) 
                                         <img
                                             // src={tileEntities[0].params?.image}
                                             // alt={tileEntities[0].params?.name}
-                                            src={"https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp"}
-                                            alt={"https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp"}
+                                            src={isConstructing ? e.entityDefinition.mapIconConstruction : e.entityDefinition.mapIcon}
                                             style={{
                                                 width: tileSize * tileEntities[0].entityDefinition.width + (tileEntities[0].entityDefinition.width - 1) * 2,
                                                 height: tileSize * tileEntities[0].entityDefinition.height + (tileEntities[0].entityDefinition.height - 1) * 2,

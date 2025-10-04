@@ -9,7 +9,9 @@ export const STATIC_ENTITY_DEFINITIONS: EntityDefinition[] = [
     height: 2,
     price: 100,
     buildTime: 30,
-    image: "https://placehold.co/100x100?text=House",
+    menuIcon: "https://placehold.co/100x100?text=House",
+    mapIcon: "https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp",
+    mapIconConstruction: "https://cdn-icons-png.flaticon.com/512/248/248144.png",
     description: "Provides housing for your population."
   },
   {
@@ -20,7 +22,9 @@ export const STATIC_ENTITY_DEFINITIONS: EntityDefinition[] = [
     height: 3,
     price: 250,
     buildTime: 60,
-    image: "https://placehold.co/100x100?text=Barracks",
+    menuIcon: "https://placehold.co/100x100?text=Barracks",
+    mapIcon: "https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp",
+    mapIconConstruction: "https://cdn-icons-png.flaticon.com/512/248/248144.png",
     description: "Trains basic military units."
   },
   {
@@ -31,7 +35,9 @@ export const STATIC_ENTITY_DEFINITIONS: EntityDefinition[] = [
     height: 1,
     price: 50,
     buildTime: 20,
-    image: "https://placehold.co/100x100?text=Soldier",
+    menuIcon: "https://placehold.co/100x100?text=Soldier",
+    mapIcon: "https://pics.craiyon.com/2023-11-30/dDNyf1iHSHeLo7vvNnJwHg.webp",
+    mapIconConstruction: "https://cdn-icons-png.flaticon.com/512/248/248144.png",
     description: "Basic infantry unit with moderate attack power.",
     stats: { health: 100, attack: 10 }
   }

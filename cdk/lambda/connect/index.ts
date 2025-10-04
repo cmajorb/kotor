@@ -7,6 +7,7 @@ const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || 'ConnectionsTable';
 
 export const handler = async (event: any) => {
   // event.requestContext.connectionId is the WebSocket connection id
+  console.log("Connect event", event);
   const connectionId = event.requestContext?.connectionId;
   const regionId = event.queryStringParameters?.regionId || "world";
   // We could validate a JWT from queryStringParameters.Authorization or subprotocol, but keeping simple
@@ -26,6 +27,7 @@ export const handler = async (event: any) => {
       connectedAt: Date.now()
     }
   }));
+  console.log("Saved connection", connectionId, "for user", userId, "in region", regionId);
 
   return { statusCode: 200, body: 'connected' };
 };

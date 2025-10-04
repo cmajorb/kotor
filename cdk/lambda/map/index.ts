@@ -24,10 +24,10 @@ async function getDefinitionMap(): Promise<Map<string, EntityDefinition>> {
 }
 
 export const handler = async (event: any) => {
-    const method = event.httpMethod;
-    const path = event.path;
+    const method = event.requestContext.http.method;
+    const path = event.requestContext.http.path;
     console.log("Establisehd connection to API Gateway Management API at", `https://${WS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${WS_STAGE}`);
-
+    console.log("Event:", method, path, event);
     try {
         if (method === "GET" && path === "/map") {
             return await handleGetMap(event);
@@ -78,6 +78,7 @@ async function handleGetMap(event: any) {
 }
 
 async function handleCreateEntity(event: any) {
+    console.log("Create entity event", event);
     const entity = JSON.parse(event.body || "{}") as EntityRequest;
 
     if (!entity.regionId || !entity.entityDefinitionId || entity.x === undefined || entity.y === undefined) {

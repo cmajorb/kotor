@@ -7,7 +7,8 @@ const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || "ConnectionsTable";
 const WS_API_ID = process.env.WS_API_ID!;
 const WS_STAGE = process.env.WS_STAGE || "prod";
 const AWS_REGION = process.env.AWS_REGION || "us-east-1";
-import type { Entity, Task, EntityDefinition } from "../entities/types";
+const TILES_TABLE = process.env.TILES_TABLE
+import type { Task, EntityDefinition } from "../entities/types";
 import { EntityService } from "../entities/EntityService";
 
 const apiGwEndpoint = `https://${WS_API_ID}.execute-api.${AWS_REGION}.amazonaws.com/${WS_STAGE}`;
@@ -62,7 +63,7 @@ export const handler = async (event: any) => {
 async function handleConstructionTask(task: Task) {
   console.log("Completing construction:", task);
   await ddb.send(new UpdateCommand({
-    TableName: process.env.TILES_TABLE,
+    TableName: TILES_TABLE,
     Key: { regionId: task.entity.regionId, entityKey: task.entity.entityKey },
     UpdateExpression: "SET params.constructionStatus = :complete",
     ExpressionAttributeValues: {

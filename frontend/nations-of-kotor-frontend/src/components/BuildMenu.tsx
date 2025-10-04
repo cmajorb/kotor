@@ -59,8 +59,8 @@ export default function BuildMenu({
               onClick={() => onSelect(option)}
             >
               <img
-                src={option.image}
-                alt={option.name}
+                src={option.menuIcon}
+                alt={option.menuIcon}
                 className="w-20 h-20 object-cover rounded-full border-2 border-slate-600"
               />
               <div className="text-center">

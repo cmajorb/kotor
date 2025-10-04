@@ -8,7 +8,9 @@ export interface EntityDefinition {
   height: number;
   price: number;
   buildTime: number;
-  image: string;
+  menuIcon: string;
+  mapIcon: string;
+  mapIconConstruction: string;
   description?: string;
   stats?: Record<string, number>;
 }
